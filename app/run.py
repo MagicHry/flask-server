@@ -10,15 +10,28 @@ from config import ServerConfig
 from flask_sqlalchemy import SQLAlchemy
 import random
 from core.helper import FileUtils
+from core.helper import LogUtils as log
+from core.photoaes import PhotoAesModel as AesModel
 
+# flask 后台相关
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'gaokuaidian'
 app.config['UPLOAD_FOLDER'] = 'data/'
+app.config['LOG_FOLDER'] = 'logs/'
 app.config['THUMBNAIL_FOLDER_NAME'] = 'thumbnail'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data/aesinfo.db'
+app.config['AES_MODEL_PATH'] = 'weights/weights.h5'
 db = SQLAlchemy(app)
 bootstrap = Bootstrap(app)
+log.register_logger(app)
+app.logger.name="PhotoAes"
+
+# 数据库初始化
+db.create_all()
+
+# 照片美学相关环境启动
+AesModel.initModel(app.config['AES_MODEL_PATH'])
 
 """
 db对象，这里因为只是用来存储一下文件名，用户id和照片美学得分的
@@ -52,7 +65,7 @@ def addAesInfo(user_id, file_name, aes_score, db):
     user_aes_info = AesUserInfo(user_id, file_name, aes_score)
     db.session.add(user_aes_info)
     db.session.commit()
-    print('Add aes info into db for img -> %s' % file_name)
+    log.info('Add aes info into db for img -> %s' % file_name)
 
 
 def queryAesInfoById(user_id):
@@ -71,7 +84,7 @@ def queryAesInfoById(user_id):
 
     for aesInfo in aes_info_lst:
         aes_score_container[aesInfo.photoName] = aesInfo.photoScore
-        print('The aes score for img=%s is %s' % (aesInfo.photoName, aesInfo.photoScore))
+        log.info('The aes score for img=%s is %s' % (aesInfo.photoName, aesInfo.photoScore))
 
     return aes_score_container
 
@@ -112,15 +125,17 @@ def upload():
             _, user_id = getUserId()
 
             # 保存上传图片以及缩略图
-            return_msg = ImgHandle.handlePhotoPost(files, app, user_id)
+            return_msg, img_path = ImgHandle.handlePhotoPost(files, app, user_id)
 
-            # 计算美学得分
-            # TODO:这里先XJB写一个占位用
-            aes_score = (u"美学得分：%.2f" % random.randint(0,100))
-            return_msg.aes_score = aes_score
+            if img_path:
 
-            # 整体数据落db
-            addAesInfo(user_id, return_msg.name, aes_score, db)
+                # 计算美学得分
+                aes_score = AesModel.runModelForSingleImg(img_path, True)
+                aes_score_str = (u"美学得分：%.2f" % aes_score)
+                return_msg.aes_score = aes_score_str
+
+                # 整体数据落db
+                addAesInfo(user_id, return_msg.name, aes_score, db)
 
             return simplejson.dumps({"files": [return_msg.get_file()]})
 
@@ -222,6 +237,8 @@ def login():
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    if not AesModel.initFinish():
+        return render_template('invalid.html')
     if ServerConfig.SESSION_KEY_NAME in session:
         # 登录态被记住，那么直接进照片美学页面
         userName, userId = getUserId()
@@ -232,6 +249,12 @@ def index():
     return redirect(url_for('login'))
 
 
+def create_app():
+    """
+    flask启动前初始化
+    :return:
+    """
+
 if __name__ == '__main__':
-    db.create_all()
-    app.run()
+    # 后台业务逻辑启动
+    app.run(debug=True)

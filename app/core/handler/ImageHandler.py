@@ -31,7 +31,7 @@ def handlePhotoPost(files, app, userId):
 
     # 文件名不符合直接没了
     if not allowed_file(files.filename):
-        result = uploadfile(name=filename, type=mime_type, size=0, not_allowed_msg=u"不支持的文件类型~")
+        result = uploadfile(name=filename, type=mime_type, size=0, not_allowed_msg=u"不支持的文件类型~"), None
 
     else:
         # 每个用户拥有自己的缓存目录
@@ -49,9 +49,9 @@ def handlePhotoPost(files, app, userId):
             size = os.path.getsize(uploaded_file_path)
 
             # 存储完成
-            result = uploadfile(name=filename, type=mime_type, size=size)
+            result = uploadfile(name=filename, type=mime_type, size=size), uploaded_file_path
         else:
-            result = uploadfile(name=filename, type=mime_type, size=0, not_allowed_msg=u"文件存储有误")
+            result = uploadfile(name=filename, type=mime_type, size=0, not_allowed_msg=u"文件存储有误"), None
 
     return result
 
